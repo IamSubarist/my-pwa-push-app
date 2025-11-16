@@ -12,39 +12,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ВРЕМЕННО: Генерация ключей для копирования в Render
-# УДАЛИТЕ ЭТОТ БЛОК ПОСЛЕ ТОГО КАК СКОПИРУЕТЕ КЛЮЧИ!
-print("="*70)
-print("ГЕНЕРАЦИЯ VAPID КЛЮЧЕЙ ДЛЯ RENDER...")
-print("="*70)
-import base64
-try:
-    vapid_key = py_vapid.Vapid01()
-    vapid_key.generate_keys()
-    VAPID_PRIVATE_KEY_GEN = vapid_key.private_key.pem
-    public_key_bytes = vapid_key.public_key.public_key_bytes
-    VAPID_PUBLIC_KEY_GEN = base64.urlsafe_b64encode(public_key_bytes).decode('utf-8').rstrip('=')
-    
-    print("\n" + "="*70)
-    print("СКОПИРУЙТЕ ЭТИ КЛЮЧИ В RENDER:")
-    print("="*70)
-    print("\n1. VAPID_PRIVATE_KEY (скопируйте ВЕСЬ текст ниже):")
-    print("-"*70)
-    print(VAPID_PRIVATE_KEY_GEN)
-    print("-"*70)
-    print("\n2. VAPID_PUBLIC_KEY:")
-    print(VAPID_PUBLIC_KEY_GEN)
-    print("\n3. VAPID_EMAIL:")
-    print("mailto:your-email@example.com")
-    print("="*70)
-    print("\nВАЖНО: После добавления ключей в Render, удалите строки 15-42!")
-    print("="*70)
-except Exception as e:
-    print(f"ОШИБКА генерации ключей: {e}")
-    print("Убедитесь, что используется Python 3.12")
-    import traceback
-    print(traceback.format_exc())
-
 app = FastAPI(title="PWA Push Notifications API")
 
 # Настройка CORS
@@ -66,16 +33,10 @@ else:
     supabase_client = None
     print("Предупреждение: Supabase не настроен. Используется локальное хранилище.")
 
-# VAPID ключи (должны быть в .env файле или сгенерированы временно выше)
+# VAPID ключи (должны быть в .env файле или переменных окружения Render)
 VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY")
 VAPID_EMAIL = os.getenv("VAPID_EMAIL", "mailto:your-email@example.com")
-
-# Используем временно сгенерированные ключи, если они есть и переменные окружения не заданы
-if not VAPID_PRIVATE_KEY and 'VAPID_PRIVATE_KEY_GEN' in globals():
-    VAPID_PRIVATE_KEY = VAPID_PRIVATE_KEY_GEN
-if not VAPID_PUBLIC_KEY and 'VAPID_PUBLIC_KEY_GEN' in globals():
-    VAPID_PUBLIC_KEY = VAPID_PUBLIC_KEY_GEN
 
 # Если ключи заданы из .env, обрабатываем публичный ключ
 if VAPID_PUBLIC_KEY and isinstance(VAPID_PUBLIC_KEY, str) and not VAPID_PUBLIC_KEY.startswith("-----BEGIN"):
@@ -280,17 +241,26 @@ async def send_notification(notification: NotificationData):
                 print(f"Отправка уведомления на endpoint: {sub['endpoint']}")
                 print(f"Данные уведомления: {notification_payload}")
                 
-                # Проверяем формат VAPID ключа
+                # Проверяем и нормализуем формат VAPID ключа
                 # pywebpush требует PEM формат (начинается с "-----BEGIN")
                 vapid_private_key_for_push = VAPID_PRIVATE_KEY
                 
-                # Если ключ не в PEM формате (base64 от web-push), это проблема
+                # Если ключ не в PEM формате, пытаемся добавить BEGIN/END строки
                 if isinstance(VAPID_PRIVATE_KEY, str) and not VAPID_PRIVATE_KEY.startswith("-----BEGIN"):
-                    print(f"ОШИБКА: VAPID ключ не в PEM формате!")
-                    print(f"Текущий ключ (первые 50 символов): {VAPID_PRIVATE_KEY[:50]}")
-                    print("Ключ должен начинаться с '-----BEGIN PRIVATE KEY-----'")
-                    print("Используйте Python скрипт generate_vapid_keys.py для генерации правильных ключей")
-                    raise ValueError("VAPID приватный ключ должен быть в PEM формате. Используйте Python для генерации ключей.")
+                    # Возможно, ключ сохранен без BEGIN/END строк - добавляем их
+                    if len(VAPID_PRIVATE_KEY) > 100:  # Это похоже на base64 ключ без BEGIN/END
+                        # Пытаемся создать PEM формат
+                        # Формат PEM: -----BEGIN PRIVATE KEY-----\nключ\n-----END PRIVATE KEY-----
+                        key_lines = [VAPID_PRIVATE_KEY[i:i+64] for i in range(0, len(VAPID_PRIVATE_KEY), 64)]
+                        formatted_key = "-----BEGIN PRIVATE KEY-----\n" + "\n".join(key_lines) + "\n-----END PRIVATE KEY-----"
+                        vapid_private_key_for_push = formatted_key
+                        print("Ключ был без BEGIN/END строк, добавлены автоматически")
+                    else:
+                        # Это короткий base64 ключ от web-push - не подходит
+                        print(f"ОШИБКА: VAPID ключ не в правильном формате!")
+                        print(f"Текущий ключ (первые 50 символов): {VAPID_PRIVATE_KEY[:50]}")
+                        print("Ключ должен быть в PEM формате или длинным base64 ключом")
+                        raise ValueError("VAPID приватный ключ должен быть в PEM формате. Используйте generate_keys_simple.py для генерации правильных ключей.")
                 
                 webpush(
                     subscription_info={
