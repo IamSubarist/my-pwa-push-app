@@ -1,10 +1,33 @@
 import { useState, useEffect } from "react";
+import axios from "axios";
 import "./App.css";
 
 // URL бэкенда
 const API_URL =
   import.meta.env.VITE_API_URL ||
   "https://my-pwa-push-app-backend.onrender.com";
+
+// Создаем экземпляр axios с базовой конфигурацией
+const api = axios.create({
+  baseURL: API_URL,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+// Interceptor для добавления токена авторизации к каждому запросу
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem("auth_token");
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
 
 // Функция для получения токена из localStorage
 const getToken = () => localStorage.getItem("auth_token");
@@ -14,15 +37,6 @@ const setToken = (token) => {
   } else {
     localStorage.removeItem("auth_token");
   }
-};
-
-// Функция для создания заголовков с авторизацией
-const getAuthHeaders = () => {
-  const token = getToken();
-  return {
-    "Content-Type": "application/json",
-    ...(token && { Authorization: `Bearer ${token}` }),
-  };
 };
 
 function App() {
@@ -92,24 +106,12 @@ function App() {
 
   const checkAuth = async (token) => {
     try {
-      const response = await fetch(`${API_URL}/api/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
-        setIsAuthenticated(true);
-      } else {
-        // Токен недействителен
-        setToken(null);
-        setIsAuthenticated(false);
-        setUser(null);
-      }
+      const response = await api.get("/api/me");
+      setUser(response.data.user);
+      setIsAuthenticated(true);
     } catch (error) {
       console.error("Ошибка при проверке авторизации:", error);
+      // Токен недействителен
       setToken(null);
       setIsAuthenticated(false);
       setUser(null);
@@ -121,37 +123,28 @@ function App() {
     setAuthError("");
 
     try {
-      const response = await fetch(`${API_URL}/api/register`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          username: registerUsername,
-          email: registerEmail,
-          password: registerPassword,
-        }),
+      const response = await api.post("/api/register", {
+        username: registerUsername,
+        email: registerEmail,
+        password: registerPassword,
       });
 
-      const data = await response.json();
-
-      if (response.ok) {
-        setToken(data.access_token);
-        setUser({
-          id: data.user_id,
-          username: data.username,
-          email: registerEmail,
-        });
-        setIsAuthenticated(true);
-        setShowLogin(true);
-        setRegisterUsername("");
-        setRegisterEmail("");
-        setRegisterPassword("");
-      } else {
-        setAuthError(data.detail || "Ошибка при регистрации");
-      }
+      setToken(response.data.access_token);
+      setUser({
+        id: response.data.user_id,
+        username: response.data.username,
+        email: registerEmail,
+      });
+      setIsAuthenticated(true);
+      setShowLogin(true);
+      setRegisterUsername("");
+      setRegisterEmail("");
+      setRegisterPassword("");
     } catch (error) {
-      setAuthError("Не удалось зарегистрироваться: " + error.message);
+      setAuthError(
+        error.response?.data?.detail ||
+          "Не удалось зарегистрироваться: " + error.message
+      );
     }
   };
 
@@ -160,34 +153,24 @@ function App() {
     setAuthError("");
 
     try {
-      const response = await fetch(`${API_URL}/api/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: loginEmail,
-          password: loginPassword,
-        }),
+      const response = await api.post("/api/login", {
+        email: loginEmail,
+        password: loginPassword,
       });
 
-      const data = await response.json();
-
-      if (response.ok) {
-        setToken(data.access_token);
-        setUser({
-          id: data.user_id,
-          username: data.username,
-          email: loginEmail,
-        });
-        setIsAuthenticated(true);
-        setLoginEmail("");
-        setLoginPassword("");
-      } else {
-        setAuthError(data.detail || "Неверный email или пароль");
-      }
+      setToken(response.data.access_token);
+      setUser({
+        id: response.data.user_id,
+        username: response.data.username,
+        email: loginEmail,
+      });
+      setIsAuthenticated(true);
+      setLoginEmail("");
+      setLoginPassword("");
     } catch (error) {
-      setAuthError("Не удалось войти: " + error.message);
+      setAuthError(
+        error.response?.data?.detail || "Не удалось войти: " + error.message
+      );
     }
   };
 
@@ -246,8 +229,8 @@ function App() {
       const registration = await navigator.serviceWorker.ready;
 
       // Получаем VAPID публичный ключ с сервера
-      const response = await fetch(`${API_URL}/api/vapid-public-key`);
-      const { publicKey } = await response.json();
+      const response = await api.get("/api/vapid-public-key");
+      const { publicKey } = response.data;
 
       // Конвертируем ключ в формат Uint8Array
       const applicationServerKey = urlBase64ToUint8Array(publicKey);
@@ -259,10 +242,41 @@ function App() {
       });
 
       // Отправляем подписку на сервер с токеном авторизации
-      const subscribeResponse = await fetch(`${API_URL}/api/subscribe`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
+      const subscribeResponse = await api.post("/api/subscribe", {
+        endpoint: subscription.endpoint,
+        keys: {
+          p256dh: btoa(
+            String.fromCharCode(
+              ...new Uint8Array(subscription.getKey("p256dh"))
+            )
+          ),
+          auth: btoa(
+            String.fromCharCode(...new Uint8Array(subscription.getKey("auth")))
+          ),
+        },
+      });
+
+      setIsSubscribed(true);
+      setSubscriptionStatus("subscribed");
+      console.log("Подписка успешно создана:", subscribeResponse.data);
+    } catch (error) {
+      console.error("Ошибка при подписке на push-уведомления:", error);
+      const errorMessage =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        error.message;
+      alert("Не удалось подписаться на уведомления: " + errorMessage);
+    }
+  };
+
+  const unsubscribeFromPush = async () => {
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+
+      if (subscription) {
+        // Отправляем запрос на удаление подписки на сервер с токеном
+        await api.post("/api/unsubscribe", {
           endpoint: subscription.endpoint,
           keys: {
             p256dh: btoa(
@@ -276,61 +290,6 @@ function App() {
               )
             ),
           },
-        }),
-      });
-
-      if (!subscribeResponse.ok) {
-        let errorText;
-        try {
-          const errorData = await subscribeResponse.json();
-          errorText =
-            errorData.detail || errorData.message || JSON.stringify(errorData);
-        } catch {
-          errorText = await subscribeResponse.text();
-        }
-        console.error("Ошибка сервера:", {
-          status: subscribeResponse.status,
-          statusText: subscribeResponse.statusText,
-          error: errorText,
-        });
-        throw new Error(`Ошибка ${subscribeResponse.status}: ${errorText}`);
-      }
-
-      const result = await subscribeResponse.json();
-      setIsSubscribed(true);
-      setSubscriptionStatus("subscribed");
-      console.log("Подписка успешно создана:", result);
-    } catch (error) {
-      console.error("Ошибка при подписке на push-уведомления:", error);
-      alert("Не удалось подписаться на уведомления: " + error.message);
-    }
-  };
-
-  const unsubscribeFromPush = async () => {
-    try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-
-      if (subscription) {
-        // Отправляем запрос на удаление подписки на сервер с токеном
-        await fetch(`${API_URL}/api/unsubscribe`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            endpoint: subscription.endpoint,
-            keys: {
-              p256dh: btoa(
-                String.fromCharCode(
-                  ...new Uint8Array(subscription.getKey("p256dh"))
-                )
-              ),
-              auth: btoa(
-                String.fromCharCode(
-                  ...new Uint8Array(subscription.getKey("auth"))
-                )
-              ),
-            },
-          }),
         });
 
         // Отписываемся локально
@@ -348,28 +307,21 @@ function App() {
   const sendTestNotification = async () => {
     try {
       // Отправляем уведомление текущему пользователю (на все его устройства)
-      const response = await fetch(`${API_URL}/api/send-notification`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          title: "Тестовое уведомление",
-          body: "Это тестовое push-уведомление!",
-          icon: "/vite.svg",
-        }),
+      const response = await api.post("/api/send-notification", {
+        title: "Тестовое уведомление",
+        body: "Это тестовое push-уведомление!",
+        icon: "/vite.svg",
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        alert(
-          `Тестовое уведомление отправлено на ${data.success_count} устройство(а)!`
-        );
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Ошибка при отправке уведомления");
-      }
+      alert(
+        `Тестовое уведомление отправлено на ${response.data.success_count} устройство(а)!`
+      );
     } catch (error) {
       console.error("Ошибка при отправке тестового уведомления:", error);
-      alert("Не удалось отправить уведомление: " + error.message);
+      const errorMessage =
+        error.response?.data?.detail ||
+        "Не удалось отправить уведомление: " + error.message;
+      alert(errorMessage);
     }
   };
 
