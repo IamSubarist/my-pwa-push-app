@@ -1,16 +1,20 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 import json
 import os
 import base64
 from pywebpush import webpush, WebPushException
 import py_vapid
-from datetime import datetime
+from datetime import datetime, timedelta
 import supabase
 from dotenv import load_dotenv
 from cryptography.hazmat.primitives import serialization
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+import secrets
 
 load_dotenv()
 
@@ -39,6 +43,15 @@ else:
 VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY")
 VAPID_EMAIL = os.getenv("VAPID_EMAIL", "mailto:your-email@example.com")
+
+# JWT настройки
+SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))  # Генерируем случайный ключ, если не задан
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24 * 60  # 30 дней
+
+# Настройки для хеширования паролей
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer()
 
 
 def normalize_vapid_private_key(key: str) -> str:
@@ -126,6 +139,62 @@ if VAPID_PUBLIC_KEY and isinstance(VAPID_PUBLIC_KEY, str) and not VAPID_PUBLIC_K
 # Локальное хранилище подписок (если Supabase не используется)
 local_subscriptions = []
 
+# Локальное хранилище пользователей (если Supabase не используется)
+local_users = []
+
+
+# Функции для работы с паролями
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+# Функции для работы с JWT токенами
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+def decode_access_token(token: str) -> Optional[dict]:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        return None
+
+
+# Зависимость для получения текущего пользователя
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    payload = decode_access_token(token)
+    if payload is None:
+        raise HTTPException(status_code=401, detail="Недействительный токен")
+    user_id: str = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Недействительный токен")
+    return {"user_id": user_id}
+
+
+# Модели данных
+class UserRegister(BaseModel):
+    username: str
+    email: EmailStr
+    password: str
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
 
 class PushSubscription(BaseModel):
     endpoint: str
@@ -140,11 +209,152 @@ class NotificationData(BaseModel):
     tag: Optional[str] = None
     data: Optional[dict] = None
     requireInteraction: Optional[bool] = False
+    user_id: Optional[str] = None  # Если указан, отправляем на все устройства этого пользователя
 
 
 @app.get("/")
 async def root():
     return {"message": "PWA Push Notifications API", "status": "running"}
+
+
+@app.post("/api/register")
+async def register(user_data: UserRegister):
+    """Регистрация нового пользователя"""
+    try:
+        # Проверяем, существует ли пользователь с таким email
+        if supabase_client:
+            existing = supabase_client.table("users").select("*").eq("email", user_data.email).execute()
+            if existing.data and len(existing.data) > 0:
+                raise HTTPException(status_code=400, detail="Пользователь с таким email уже существует")
+            
+            # Создаем нового пользователя
+            hashed_password = get_password_hash(user_data.password)
+            result = supabase_client.table("users").insert({
+                "username": user_data.username,
+                "email": user_data.email,
+                "hashed_password": hashed_password,
+                "created_at": datetime.now().isoformat()
+            }).execute()
+            
+            if result.data and len(result.data) > 0:
+                user_id = result.data[0]["id"]
+                # Создаем токен
+                access_token = create_access_token(data={"sub": str(user_id)})
+                return {
+                    "status": "success",
+                    "access_token": access_token,
+                    "token_type": "bearer",
+                    "user_id": str(user_id),
+                    "username": user_data.username
+                }
+            else:
+                raise HTTPException(status_code=500, detail="Не удалось создать пользователя")
+        else:
+            # Локальное хранилище
+            global local_users
+            # Проверяем, существует ли пользователь
+            for user in local_users:
+                if user["email"] == user_data.email:
+                    raise HTTPException(status_code=400, detail="Пользователь с таким email уже существует")
+            
+            # Создаем нового пользователя
+            user_id = str(len(local_users) + 1)
+            hashed_password = get_password_hash(user_data.password)
+            new_user = {
+                "id": user_id,
+                "username": user_data.username,
+                "email": user_data.email,
+                "hashed_password": hashed_password,
+                "created_at": datetime.now().isoformat()
+            }
+            local_users.append(new_user)
+            
+            # Создаем токен
+            access_token = create_access_token(data={"sub": user_id})
+            return {
+                "status": "success",
+                "access_token": access_token,
+                "token_type": "bearer",
+                "user_id": user_id,
+                "username": user_data.username
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Ошибка при регистрации: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при регистрации: {str(e)}")
+
+
+@app.post("/api/login")
+async def login(user_data: UserLogin):
+    """Авторизация пользователя"""
+    try:
+        user = None
+        if supabase_client:
+            result = supabase_client.table("users").select("*").eq("email", user_data.email).execute()
+            if result.data and len(result.data) > 0:
+                user = result.data[0]
+        else:
+            # Локальное хранилище
+            global local_users
+            for u in local_users:
+                if u["email"] == user_data.email:
+                    user = u
+                    break
+        
+        if not user:
+            raise HTTPException(status_code=401, detail="Неверный email или пароль")
+        
+        # Проверяем пароль
+        if not verify_password(user_data.password, user["hashed_password"]):
+            raise HTTPException(status_code=401, detail="Неверный email или пароль")
+        
+        # Создаем токен
+        user_id = str(user["id"])
+        access_token = create_access_token(data={"sub": user_id})
+        return {
+            "status": "success",
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user_id": user_id,
+            "username": user["username"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Ошибка при авторизации: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при авторизации: {str(e)}")
+
+
+@app.get("/api/me")
+async def get_current_user_info(current_user: dict = Depends(get_current_user)):
+    """Получить информацию о текущем пользователе"""
+    try:
+        user_id = current_user["user_id"]
+        if supabase_client:
+            result = supabase_client.table("users").select("id, username, email, created_at").eq("id", user_id).execute()
+            if result.data and len(result.data) > 0:
+                return {"status": "success", "user": result.data[0]}
+            else:
+                raise HTTPException(status_code=404, detail="Пользователь не найден")
+        else:
+            global local_users
+            for user in local_users:
+                if str(user["id"]) == user_id:
+                    return {
+                        "status": "success",
+                        "user": {
+                            "id": user["id"],
+                            "username": user["username"],
+                            "email": user["email"],
+                            "created_at": user["created_at"]
+                        }
+                    }
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/vapid-public-key")
@@ -175,9 +385,11 @@ async def get_vapid_public_key():
 
 
 @app.post("/api/subscribe")
-async def subscribe(subscription: PushSubscription):
+async def subscribe(subscription: PushSubscription, current_user: dict = Depends(get_current_user)):
     """Сохраняет подписку пользователя"""
     try:
+        user_id = current_user["user_id"]
+        
         # Проверяем наличие обязательных полей
         if not subscription.endpoint:
             raise HTTPException(status_code=400, detail="Endpoint отсутствует")
@@ -188,6 +400,7 @@ async def subscribe(subscription: PushSubscription):
         subscription_data = {
             "endpoint": subscription.endpoint,
             "keys": subscription.keys,
+            "user_id": user_id,
             "created_at": datetime.now().isoformat()
         }
 
@@ -202,6 +415,7 @@ async def subscribe(subscription: PushSubscription):
                     result = supabase_client.table("push_subscriptions").update({
                         "p256dh": subscription.keys.get("p256dh"),
                         "auth": subscription.keys.get("auth"),
+                        "user_id": user_id,
                         "created_at": datetime.now().isoformat()
                     }).eq("endpoint", subscription.endpoint).execute()
                 else:
@@ -210,6 +424,7 @@ async def subscribe(subscription: PushSubscription):
                         "endpoint": subscription.endpoint,
                         "p256dh": subscription.keys.get("p256dh"),
                         "auth": subscription.keys.get("auth"),
+                        "user_id": user_id,
                         "created_at": datetime.now().isoformat()
                     }).execute()
                 return {"status": "success", "message": "Подписка сохранена"}
@@ -237,21 +452,22 @@ async def subscribe(subscription: PushSubscription):
 
 
 @app.post("/api/unsubscribe")
-async def unsubscribe(subscription: PushSubscription):
+async def unsubscribe(subscription: PushSubscription, current_user: dict = Depends(get_current_user)):
     """Удаляет подписку пользователя"""
     try:
+        user_id = current_user["user_id"]
         if supabase_client:
-            # Удаляем из Supabase
+            # Удаляем из Supabase (только подписки текущего пользователя)
             result = supabase_client.table("push_subscriptions").delete().eq(
                 "endpoint", subscription.endpoint
-            ).execute()
+            ).eq("user_id", user_id).execute()
             return {"status": "success", "message": "Подписка удалена"}
         else:
             # Удаляем из локального хранилища
             global local_subscriptions
             local_subscriptions = [
                 sub for sub in local_subscriptions
-                if sub["endpoint"] != subscription.endpoint
+                if not (sub["endpoint"] == subscription.endpoint and str(sub.get("user_id")) == user_id)
             ]
             return {"status": "success", "message": "Подписка удалена"}
     except Exception as e:
@@ -259,14 +475,17 @@ async def unsubscribe(subscription: PushSubscription):
 
 
 @app.post("/api/send-notification")
-async def send_notification(notification: NotificationData):
-    """Отправляет push-уведомление всем подписчикам"""
+async def send_notification(notification: NotificationData, current_user: dict = Depends(get_current_user)):
+    """Отправляет push-уведомление конкретному пользователю (на все его устройства)"""
     global local_subscriptions
     try:
-        # Получаем все подписки
+        # Определяем, какому пользователю отправлять уведомление
+        target_user_id = notification.user_id or current_user["user_id"]
+        
+        # Получаем подписки для указанного пользователя
         subscriptions = []
         if supabase_client:
-            result = supabase_client.table("push_subscriptions").select("*").execute()
+            result = supabase_client.table("push_subscriptions").select("*").eq("user_id", target_user_id).execute()
             for row in result.data:
                 subscriptions.append({
                     "endpoint": row["endpoint"],
@@ -276,17 +495,18 @@ async def send_notification(notification: NotificationData):
                     }
                 })
         else:
-            # Преобразуем локальные подписки в нужный формат
+            # Локальное хранилище
             subscriptions = [
                 {
                     "endpoint": sub["endpoint"],
                     "keys": sub["keys"]
                 }
                 for sub in local_subscriptions
+                if str(sub.get("user_id")) == target_user_id
             ]
 
         if not subscriptions:
-            return {"status": "error", "message": "Нет активных подписок"}
+            return {"status": "error", "message": f"У пользователя {target_user_id} нет активных подписок"}
 
         # Проверяем наличие VAPID ключа
         if not VAPID_PRIVATE_KEY_BASE64URL:
