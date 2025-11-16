@@ -38,6 +38,44 @@ VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY")
 VAPID_EMAIL = os.getenv("VAPID_EMAIL", "mailto:your-email@example.com")
 
+
+def normalize_vapid_private_key(key: str) -> str:
+    """Нормализует VAPID приватный ключ из переменной окружения.
+    
+    Ключ из переменных окружения может иметь потерянные переносы строк
+    или литеральные \n вместо реальных переносов строк.
+    """
+    if not key or not isinstance(key, str):
+        return key
+    
+    # Заменяем литеральные \n на реальные переносы строк
+    normalized = key.replace("\\n", "\n")
+    
+    # Убираем лишние пробелы в начале и конце
+    normalized = normalized.strip()
+    
+    # Проверяем, правильно ли отформатирован ключ
+    # Правильный PEM ключ должен иметь минимум 3 строки: BEGIN, содержимое, END
+    line_count = normalized.count("\n") + 1 if "\n" in normalized else 1
+    
+    # Если ключ уже правильно отформатирован (есть переносы строк), возвращаем как есть
+    if normalized.startswith("-----BEGIN") and line_count >= 3:
+        # Убеждаемся, что в конце есть перенос строки
+        if not normalized.endswith("\n"):
+            normalized += "\n"
+        return normalized
+    
+    # Если переносы строк потеряны (ключ в одну строку), восстанавливаем их
+    if normalized.startswith("-----BEGIN"):
+        # Извлекаем содержимое ключа без заголовков
+        key_content = normalized.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
+        # Разбиваем на строки по 64 символа (стандартный формат PEM)
+        key_lines = [key_content[i:i+64] for i in range(0, len(key_content), 64)]
+        normalized = "-----BEGIN PRIVATE KEY-----\n" + "\n".join(key_lines) + "\n-----END PRIVATE KEY-----\n"
+    
+    return normalized
+
+
 # Если ключи заданы из .env, обрабатываем публичный ключ
 if VAPID_PUBLIC_KEY and isinstance(VAPID_PUBLIC_KEY, str) and not VAPID_PUBLIC_KEY.startswith("-----BEGIN"):
     import base64
@@ -50,8 +88,9 @@ if VAPID_PUBLIC_KEY and isinstance(VAPID_PUBLIC_KEY, str) and not VAPID_PUBLIC_K
         # Если не получилось декодировать, пытаемся использовать py_vapid
         try:
             if VAPID_PRIVATE_KEY and VAPID_PRIVATE_KEY.startswith("-----BEGIN"):
+                normalized_private_key = normalize_vapid_private_key(VAPID_PRIVATE_KEY)
                 vapid_key = py_vapid.Vapid01()
-                vapid_key.from_pem(VAPID_PRIVATE_KEY)
+                vapid_key.from_pem(normalized_private_key)
                 VAPID_PUBLIC_KEY = vapid_key.public_key.public_key_bytes
         except:
             pass
@@ -94,8 +133,9 @@ async def get_vapid_public_key():
         else:
             # Если это PEM, конвертируем через py_vapid
             try:
+                normalized_private_key = normalize_vapid_private_key(VAPID_PRIVATE_KEY)
                 vapid_key = py_vapid.Vapid01()
-                vapid_key.from_pem(VAPID_PRIVATE_KEY)
+                vapid_key.from_pem(normalized_private_key)
                 public_key_bytes = vapid_key.public_key.public_key_bytes
                 public_key_base64 = base64.urlsafe_b64encode(public_key_bytes).decode('utf-8').rstrip('=')
             except:
@@ -220,6 +260,10 @@ async def send_notification(notification: NotificationData):
         if not subscriptions:
             return {"status": "error", "message": "Нет активных подписок"}
 
+        # Проверяем наличие VAPID ключа
+        if not VAPID_PRIVATE_KEY:
+            raise HTTPException(status_code=500, detail="VAPID_PRIVATE_KEY не настроен")
+
         # Подготавливаем данные уведомления
         notification_payload = {
             "title": notification.title,
@@ -241,51 +285,29 @@ async def send_notification(notification: NotificationData):
                 print(f"Отправка уведомления на endpoint: {sub['endpoint']}")
                 print(f"Данные уведомления: {notification_payload}")
                 
-                # Используем Vapid объект для правильной работы с PEM ключом
-                # pywebpush может иметь проблемы с парсингом PEM ключа напрямую
-                try:
-                    # Создаем Vapid объект из PEM ключа
-                    vapid = py_vapid.Vapid01()
-                    vapid.from_pem(VAPID_PRIVATE_KEY)
-                    
-                    # Используем Vapid объект напрямую в webpush
-                    # pywebpush может принимать Vapid объект вместо строки ключа
-                    webpush(
-                        subscription_info={
-                            "endpoint": sub["endpoint"],
-                            "keys": sub["keys"]
-                        },
-                        data=json.dumps(notification_payload),
-                        vapid_private_key=vapid.private_key.pem,
-                        vapid_claims={
-                            "sub": VAPID_EMAIL
-                        }
-                    )
-                except Exception as vapid_error:
-                    print(f"Ошибка при использовании Vapid объекта: {vapid_error}")
-                    # Если не получилось через Vapid объект, пробуем напрямую
-                    # Но сначала нормализуем ключ
-                    normalized_key = VAPID_PRIVATE_KEY
-                    if isinstance(VAPID_PRIVATE_KEY, str) and VAPID_PRIVATE_KEY.startswith("-----BEGIN"):
-                        # Заменяем возможные варианты переносов строк
-                        normalized_key = VAPID_PRIVATE_KEY.replace("\\n", "\n")
-                        # Если переносы строк потеряны, восстанавливаем
-                        if normalized_key.count("\n") < 2:
-                            key_content = normalized_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "").strip().replace(" ", "").replace("\n", "")
-                            key_lines = [key_content[i:i+64] for i in range(0, len(key_content), 64)]
-                            normalized_key = "-----BEGIN PRIVATE KEY-----\n" + "\n".join(key_lines) + "\n-----END PRIVATE KEY-----"
-                    
-                    webpush(
-                        subscription_info={
-                            "endpoint": sub["endpoint"],
-                            "keys": sub["keys"]
-                        },
-                        data=json.dumps(notification_payload),
-                        vapid_private_key=normalized_key,
-                        vapid_claims={
-                            "sub": VAPID_EMAIL
-                        }
-                    )
+                # Нормализуем VAPID ключ перед использованием
+                # Ключ из переменных окружения может иметь потерянные переносы строк
+                normalized_key = normalize_vapid_private_key(VAPID_PRIVATE_KEY)
+                
+                # Отладочная информация (первые 50 символов ключа)
+                if normalized_key:
+                    key_preview = normalized_key[:50].replace("\n", "\\n")
+                    print(f"Ключ нормализован (превью): {key_preview}...")
+                    print(f"Количество строк в ключе: {normalized_key.count(chr(10)) + 1}")
+                
+                # Используем нормализованный PEM ключ напрямую
+                # pywebpush правильно обработает нормализованный PEM формат
+                webpush(
+                    subscription_info={
+                        "endpoint": sub["endpoint"],
+                        "keys": sub["keys"]
+                    },
+                    data=json.dumps(notification_payload),
+                    vapid_private_key=normalized_key,
+                    vapid_claims={
+                        "sub": VAPID_EMAIL
+                    }
+                )
                 print(f"Уведомление успешно отправлено на {sub['endpoint']}")
                 success_count += 1
             except WebPushException as e:
