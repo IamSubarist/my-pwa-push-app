@@ -159,6 +159,15 @@ render env:set VAPID_PRIVATE_KEY "$(cat path/to/private-key.pem)" --service your
 
 ## Решение проблем
 
+### ❌ Ошибка: "TypeError: curve must be an EllipticCurve instance" при запуске
+
+Эта ошибка возникает из-за несовместимости `py-vapid` с Python 3.13. Решение:
+
+1. **Убедитесь, что используется Python 3.12** - в `runtime.txt` указана версия `python-3.12.0`
+2. **В настройках Render** убедитесь, что выбрана версия Python 3.12 (не 3.13!)
+3. **Обновите `requirements.txt`** - используйте `py-vapid>=1.11.0`
+4. **ВАЖНО: Добавьте VAPID ключи в переменные окружения** - чтобы избежать автоматической генерации при каждом запуске
+
 ### ❌ Ошибка при сборке: "pydantic-core compilation failed" или "Rust toolchain"
 
 Эта ошибка возникает из-за того, что старые версии `pydantic` требуют компиляции Rust кода. Решение:
@@ -168,11 +177,11 @@ render env:set VAPID_PRIVATE_KEY "$(cat path/to/private-key.pem)" --service your
    ```
    pip install --upgrade pip && pip install -r requirements.txt
    ```
-3. **Убедитесь, что используется Python 3.11+** - в `runtime.txt` указана версия `python-3.11.0`
+3. **Убедитесь, что используется Python 3.12** - в `runtime.txt` указана версия `python-3.12.0` (Python 3.13 несовместим с py-vapid)
 
 Если проблема сохраняется:
 
-- Убедитесь, что в настройках Render указана версия Python 3.11 или выше
+- Убедитесь, что в настройках Render указана версия Python 3.12 (не 3.13!)
 - Попробуйте добавить в Build Command: `pip install --upgrade pip setuptools wheel && pip install -r requirements.txt`
 
 ### ❌ Бэкенд не запускается
