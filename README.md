@@ -1,16 +1,63 @@
-# React + Vite
+# PWA Push Notifications App
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Проект реализует систему push-уведомлений для Progressive Web App (PWA) с использованием React, FastAPI и Supabase.
 
-Currently, two official plugins are available:
+## 🚀 Быстрый старт
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### Фронтенд
 
-## React Compiler
+1. Установите зависимости:
+```bash
+npm install
+```
 
-The React Compiler is currently not compatible with SWC. See [this issue](https://github.com/vitejs/vite-plugin-react/issues/428) for tracking the progress.
+2. Создайте файл `.env`:
+```
+VITE_API_URL=http://localhost:8000
+```
 
-## Expanding the ESLint configuration
+3. Запустите dev сервер:
+```bash
+npm run dev
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### Бэкенд
+
+1. Перейдите в папку backend:
+```bash
+cd backend
+```
+
+2. Установите зависимости:
+```bash
+pip install -r requirements.txt
+```
+
+3. Создайте файл `.env` (см. `backend/README.md`)
+
+4. Запустите сервер:
+```bash
+python main.py
+```
+
+## 📚 Документация
+
+Подробная инструкция по настройке и использованию находится в файле [INSTRUCTION.md](./INSTRUCTION.md).
+
+## 🏗️ Структура проекта
+
+- `src/` - React приложение
+- `public/` - Service Worker и манифест PWA
+- `backend/` - FastAPI бэкенд
+- `INSTRUCTION.md` - Подробная инструкция по реализации
+
+## 🔧 Технологии
+
+- **Фронтенд**: React + Vite
+- **Бэкенд**: FastAPI (Python)
+- **База данных**: Supabase (PostgreSQL)
+- **Push API**: Web Push API с VAPID
+
+## 📝 Лицензия
+
+MIT

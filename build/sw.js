@@ -17,6 +17,8 @@ self.addEventListener('install', (event) => {
         return cache.addAll(urlsToCache);
       })
   );
+  // Активируем новый service worker сразу
+  self.skipWaiting();
 });
 
 // Активация service worker
@@ -33,6 +35,8 @@ self.addEventListener('activate', (event) => {
       );
     })
   );
+  // Берем контроль над всеми открытыми страницами
+  return self.clients.claim();
 });
 
 // Перехват запросов
@@ -44,5 +48,76 @@ self.addEventListener('fetch', (event) => {
         return response || fetch(event.request);
       })
   );
+});
+
+// Обработка push-уведомлений
+self.addEventListener('push', (event) => {
+  console.log('Push notification received');
+  
+  let notificationData = {
+    title: 'Новое уведомление',
+    body: 'У вас новое сообщение',
+    icon: '/vite.svg',
+    badge: '/vite.svg',
+    tag: 'default',
+    requireInteraction: false,
+    data: {}
+  };
+
+  // Если данные пришли с сервера, используем их
+  if (event.data) {
+    try {
+      const data = event.data.json();
+      notificationData = { ...notificationData, ...data };
+    } catch (e) {
+      notificationData.body = event.data.text();
+    }
+  }
+
+  const promiseChain = self.registration.showNotification(
+    notificationData.title,
+    {
+      body: notificationData.body,
+      icon: notificationData.icon,
+      badge: notificationData.badge,
+      tag: notificationData.tag,
+      requireInteraction: notificationData.requireInteraction,
+      data: notificationData.data,
+      actions: notificationData.actions || []
+    }
+  );
+
+  event.waitUntil(promiseChain);
+});
+
+// Обработка клика по уведомлению
+self.addEventListener('notificationclick', (event) => {
+  console.log('Notification clicked');
+  event.notification.close();
+
+  const promiseChain = clients.matchAll({
+    type: 'window',
+    includeUncontrolled: true
+  })
+    .then((windowClients) => {
+      // Если есть открытое окно, фокусируемся на нем
+      for (let i = 0; i < windowClients.length; i++) {
+        const client = windowClients[i];
+        if (client.url === '/' && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Если окна нет, открываем новое
+      if (clients.openWindow) {
+        return clients.openWindow('/');
+      }
+    });
+
+  event.waitUntil(promiseChain);
+});
+
+// Обработка закрытия уведомления
+self.addEventListener('notificationclose', (event) => {
+  console.log('Notification closed');
 });
 
