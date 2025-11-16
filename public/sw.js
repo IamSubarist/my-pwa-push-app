@@ -61,7 +61,8 @@ self.addEventListener('fetch', (event) => {
 
 // Обработка push-уведомлений
 self.addEventListener('push', (event) => {
-  console.log('Push notification received');
+  console.log('Push notification received', event);
+  console.log('Event data:', event.data);
   
   let notificationData = {
     title: 'Новое уведомление',
@@ -77,11 +78,19 @@ self.addEventListener('push', (event) => {
   if (event.data) {
     try {
       const data = event.data.json();
+      console.log('Parsed notification data:', data);
       notificationData = { ...notificationData, ...data };
     } catch (e) {
-      notificationData.body = event.data.text();
+      console.log('Failed to parse JSON, using text:', e);
+      const text = event.data.text();
+      console.log('Text data:', text);
+      notificationData.body = text;
     }
+  } else {
+    console.log('No event data received');
   }
+
+  console.log('Showing notification with data:', notificationData);
 
   const promiseChain = self.registration.showNotification(
     notificationData.title,
@@ -94,7 +103,11 @@ self.addEventListener('push', (event) => {
       data: notificationData.data,
       actions: notificationData.actions || []
     }
-  );
+  ).then(() => {
+    console.log('Notification shown successfully');
+  }).catch((error) => {
+    console.error('Error showing notification:', error);
+  });
 
   event.waitUntil(promiseChain);
 });

@@ -12,6 +12,33 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ВРЕМЕННО: Генерация ключей если их нет (для получения правильных ключей в PEM формате)
+if not os.getenv("VAPID_PRIVATE_KEY"):
+    import base64
+    print("="*60)
+    print("ГЕНЕРАЦИЯ VAPID КЛЮЧЕЙ...")
+    print("="*60)
+    try:
+        vapid_key = py_vapid.Vapid01()
+        vapid_key.generate_keys()
+        VAPID_PRIVATE_KEY_GEN = vapid_key.private_key.pem
+        public_key_bytes = vapid_key.public_key.public_key_bytes
+        VAPID_PUBLIC_KEY_GEN = base64.urlsafe_b64encode(public_key_bytes).decode('utf-8').rstrip('=')
+        print("\n" + "="*60)
+        print("СКОПИРУЙТЕ ЭТИ КЛЮЧИ В RENDER (Environment Variables):")
+        print("="*60)
+        print("\nVAPID_PRIVATE_KEY=")
+        print(VAPID_PRIVATE_KEY_GEN)
+        print("\nVAPID_PUBLIC_KEY=")
+        print(VAPID_PUBLIC_KEY_GEN)
+        print("\nVAPID_EMAIL=mailto:your-email@example.com")
+        print("="*60)
+        print("\nВАЖНО: После копирования ключей в Render, удалите этот блок кода!")
+        print("="*60)
+    except Exception as e:
+        print(f"Ошибка генерации ключей: {e}")
+        print("Убедитесь, что используется Python 3.12")
+
 app = FastAPI(title="PWA Push Notifications API")
 
 # Настройка CORS
@@ -33,47 +60,34 @@ else:
     supabase_client = None
     print("Предупреждение: Supabase не настроен. Используется локальное хранилище.")
 
-# VAPID ключи (должны быть в .env файле)
+# VAPID ключи (должны быть в .env файле или сгенерированы временно выше)
 VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY")
 VAPID_EMAIL = os.getenv("VAPID_EMAIL", "mailto:your-email@example.com")
 
-# Если ключи не заданы, генерируем их
-if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
-    print("Генерация новых VAPID ключей...")
+# Используем временно сгенерированные ключи, если они есть и переменные окружения не заданы
+if not VAPID_PRIVATE_KEY and 'VAPID_PRIVATE_KEY_GEN' in globals():
+    VAPID_PRIVATE_KEY = VAPID_PRIVATE_KEY_GEN
+if not VAPID_PUBLIC_KEY and 'VAPID_PUBLIC_KEY_GEN' in globals():
+    VAPID_PUBLIC_KEY = VAPID_PUBLIC_KEY_GEN
+
+# Если ключи заданы из .env, обрабатываем публичный ключ
+if VAPID_PUBLIC_KEY and isinstance(VAPID_PUBLIC_KEY, str) and not VAPID_PUBLIC_KEY.startswith("-----BEGIN"):
     import base64
-    vapid_key = py_vapid.Vapid01()
-    vapid_key.generate_keys()
-    # Получаем ключи в правильном формате для Web Push
-    VAPID_PRIVATE_KEY = vapid_key.private_key.pem
-    # Публичный ключ конвертируем в base64 формат для сохранения в .env
-    public_key_bytes = vapid_key.public_key.public_key_bytes
-    VAPID_PUBLIC_KEY_BASE64 = base64.urlsafe_b64encode(public_key_bytes).decode('utf-8').rstrip('=')
-    print("ВАЖНО: Сохраните эти ключи в .env файле:")
-    print(f"VAPID_PRIVATE_KEY={VAPID_PRIVATE_KEY}")
-    print(f"VAPID_PUBLIC_KEY={VAPID_PUBLIC_KEY_BASE64}")
-    print(f"VAPID_EMAIL={VAPID_EMAIL}")
-    print("\nВНИМАНИЕ: Сохраните эти ключи, иначе они будут потеряны при перезапуске!")
-    # Используем bytes для внутренней работы
-    VAPID_PUBLIC_KEY = public_key_bytes
-else:
-    # Если ключи заданы из .env
-    import base64
-    # Если публичный ключ в base64 формате (строка), конвертируем в bytes
-    if isinstance(VAPID_PUBLIC_KEY, str) and not VAPID_PUBLIC_KEY.startswith("-----BEGIN"):
+    try:
+        # Добавляем padding если нужно
+        padding = '=' * (4 - len(VAPID_PUBLIC_KEY) % 4)
+        VAPID_PUBLIC_KEY_BYTES = base64.urlsafe_b64decode(VAPID_PUBLIC_KEY + padding)
+        VAPID_PUBLIC_KEY = VAPID_PUBLIC_KEY_BYTES
+    except:
+        # Если не получилось декодировать, пытаемся использовать py_vapid
         try:
-            # Добавляем padding если нужно
-            padding = '=' * (4 - len(VAPID_PUBLIC_KEY) % 4)
-            VAPID_PUBLIC_KEY_BYTES = base64.urlsafe_b64decode(VAPID_PUBLIC_KEY + padding)
-            VAPID_PUBLIC_KEY = VAPID_PUBLIC_KEY_BYTES
-        except:
-            # Если не получилось декодировать, пытаемся использовать py_vapid
-            try:
+            if VAPID_PRIVATE_KEY and VAPID_PRIVATE_KEY.startswith("-----BEGIN"):
                 vapid_key = py_vapid.Vapid01()
                 vapid_key.from_pem(VAPID_PRIVATE_KEY)
                 VAPID_PUBLIC_KEY = vapid_key.public_key.public_key_bytes
-            except:
-                pass
+        except:
+            pass
 
 # Локальное хранилище подписок (если Supabase не используется)
 local_subscriptions = []
@@ -257,19 +271,39 @@ async def send_notification(notification: NotificationData):
 
         for sub in subscriptions:
             try:
+                print(f"Отправка уведомления на endpoint: {sub['endpoint']}")
+                print(f"Данные уведомления: {notification_payload}")
+                
+                # Проверяем формат VAPID ключа
+                # pywebpush требует PEM формат (начинается с "-----BEGIN")
+                vapid_private_key_for_push = VAPID_PRIVATE_KEY
+                
+                # Если ключ не в PEM формате (base64 от web-push), это проблема
+                if isinstance(VAPID_PRIVATE_KEY, str) and not VAPID_PRIVATE_KEY.startswith("-----BEGIN"):
+                    print(f"ОШИБКА: VAPID ключ не в PEM формате!")
+                    print(f"Текущий ключ (первые 50 символов): {VAPID_PRIVATE_KEY[:50]}")
+                    print("Ключ должен начинаться с '-----BEGIN PRIVATE KEY-----'")
+                    print("Используйте Python скрипт generate_vapid_keys.py для генерации правильных ключей")
+                    raise ValueError("VAPID приватный ключ должен быть в PEM формате. Используйте Python для генерации ключей.")
+                
                 webpush(
                     subscription_info={
                         "endpoint": sub["endpoint"],
                         "keys": sub["keys"]
                     },
                     data=json.dumps(notification_payload),
-                    vapid_private_key=VAPID_PRIVATE_KEY,
+                    vapid_private_key=vapid_private_key_for_push,
                     vapid_claims={
                         "sub": VAPID_EMAIL
                     }
                 )
+                print(f"Уведомление успешно отправлено на {sub['endpoint']}")
                 success_count += 1
             except WebPushException as e:
+                print(f"Ошибка WebPushException при отправке на {sub['endpoint']}: {str(e)}")
+                if hasattr(e, 'response') and e.response:
+                    print(f"Response status: {e.response.status_code}")
+                    print(f"Response text: {e.response.text if hasattr(e.response, 'text') else 'N/A'}")
                 failed_count += 1
                 failed_endpoints.append(sub["endpoint"])
                 # Если подписка недействительна, удаляем её
@@ -285,9 +319,11 @@ async def send_notification(notification: NotificationData):
                         ]
             except Exception as e:
                 # Обработка других ошибок при отправке
+                import traceback
+                print(f"Ошибка при отправке уведомления на {sub['endpoint']}: {str(e)}")
+                print(f"Traceback: {traceback.format_exc()}")
                 failed_count += 1
                 failed_endpoints.append(sub["endpoint"])
-                print(f"Ошибка при отправке уведомления: {str(e)}")
 
         return {
             "status": "success",
