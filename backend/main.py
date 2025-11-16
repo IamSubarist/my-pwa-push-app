@@ -12,32 +12,38 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ВРЕМЕННО: Генерация ключей если их нет (для получения правильных ключей в PEM формате)
-if not os.getenv("VAPID_PRIVATE_KEY"):
-    import base64
-    print("="*60)
-    print("ГЕНЕРАЦИЯ VAPID КЛЮЧЕЙ...")
-    print("="*60)
-    try:
-        vapid_key = py_vapid.Vapid01()
-        vapid_key.generate_keys()
-        VAPID_PRIVATE_KEY_GEN = vapid_key.private_key.pem
-        public_key_bytes = vapid_key.public_key.public_key_bytes
-        VAPID_PUBLIC_KEY_GEN = base64.urlsafe_b64encode(public_key_bytes).decode('utf-8').rstrip('=')
-        print("\n" + "="*60)
-        print("СКОПИРУЙТЕ ЭТИ КЛЮЧИ В RENDER (Environment Variables):")
-        print("="*60)
-        print("\nVAPID_PRIVATE_KEY=")
-        print(VAPID_PRIVATE_KEY_GEN)
-        print("\nVAPID_PUBLIC_KEY=")
-        print(VAPID_PUBLIC_KEY_GEN)
-        print("\nVAPID_EMAIL=mailto:your-email@example.com")
-        print("="*60)
-        print("\nВАЖНО: После копирования ключей в Render, удалите этот блок кода!")
-        print("="*60)
-    except Exception as e:
-        print(f"Ошибка генерации ключей: {e}")
-        print("Убедитесь, что используется Python 3.12")
+# ВРЕМЕННО: Генерация ключей для копирования в Render
+# УДАЛИТЕ ЭТОТ БЛОК ПОСЛЕ ТОГО КАК СКОПИРУЕТЕ КЛЮЧИ!
+print("="*70)
+print("ГЕНЕРАЦИЯ VAPID КЛЮЧЕЙ ДЛЯ RENDER...")
+print("="*70)
+import base64
+try:
+    vapid_key = py_vapid.Vapid01()
+    vapid_key.generate_keys()
+    VAPID_PRIVATE_KEY_GEN = vapid_key.private_key.pem
+    public_key_bytes = vapid_key.public_key.public_key_bytes
+    VAPID_PUBLIC_KEY_GEN = base64.urlsafe_b64encode(public_key_bytes).decode('utf-8').rstrip('=')
+    
+    print("\n" + "="*70)
+    print("СКОПИРУЙТЕ ЭТИ КЛЮЧИ В RENDER:")
+    print("="*70)
+    print("\n1. VAPID_PRIVATE_KEY (скопируйте ВЕСЬ текст ниже):")
+    print("-"*70)
+    print(VAPID_PRIVATE_KEY_GEN)
+    print("-"*70)
+    print("\n2. VAPID_PUBLIC_KEY:")
+    print(VAPID_PUBLIC_KEY_GEN)
+    print("\n3. VAPID_EMAIL:")
+    print("mailto:your-email@example.com")
+    print("="*70)
+    print("\nВАЖНО: После добавления ключей в Render, удалите строки 15-42!")
+    print("="*70)
+except Exception as e:
+    print(f"ОШИБКА генерации ключей: {e}")
+    print("Убедитесь, что используется Python 3.12")
+    import traceback
+    print(traceback.format_exc())
 
 app = FastAPI(title="PWA Push Notifications API")
 
