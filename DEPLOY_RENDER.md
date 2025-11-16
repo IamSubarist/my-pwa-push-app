@@ -29,7 +29,7 @@ python generate_vapid_keys.py
 - **Branch**: `main` (или ваша основная ветка)
 - **Root Directory**: `backend` ⚠️ **ВАЖНО!**
 - **Runtime**: `Python 3`
-- **Build Command**: `pip install -r requirements.txt`
+- **Build Command**: `pip install --upgrade pip && pip install -r requirements.txt`
 - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
 
 ### Шаг 4: Настройка переменных окружения
@@ -158,6 +158,22 @@ render env:set VAPID_PRIVATE_KEY "$(cat path/to/private-key.pem)" --service your
 ```
 
 ## Решение проблем
+
+### ❌ Ошибка при сборке: "pydantic-core compilation failed" или "Rust toolchain"
+
+Эта ошибка возникает из-за того, что старые версии `pydantic` требуют компиляции Rust кода. Решение:
+
+1. **Обновите `requirements.txt`** - я уже обновил версии пакетов до более новых, которые имеют предкомпилированные wheels
+2. **Используйте правильный Build Command**:
+   ```
+   pip install --upgrade pip && pip install -r requirements.txt
+   ```
+3. **Убедитесь, что используется Python 3.11+** - в `runtime.txt` указана версия `python-3.11.0`
+
+Если проблема сохраняется:
+
+- Убедитесь, что в настройках Render указана версия Python 3.11 или выше
+- Попробуйте добавить в Build Command: `pip install --upgrade pip setuptools wheel && pip install -r requirements.txt`
 
 ### ❌ Бэкенд не запускается
 

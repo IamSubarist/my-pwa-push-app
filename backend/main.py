@@ -145,7 +145,13 @@ async def subscribe(subscription: PushSubscription):
             }).execute()
             return {"status": "success", "message": "Подписка сохранена"}
         else:
-            # Сохраняем локально
+            # Сохраняем локально (проверяем на дубликаты)
+            global local_subscriptions
+            # Удаляем существующую подписку с таким же endpoint, если есть
+            local_subscriptions = [
+                sub for sub in local_subscriptions
+                if sub["endpoint"] != subscription.endpoint
+            ]
             local_subscriptions.append(subscription_data)
             return {"status": "success", "message": "Подписка сохранена"}
     except Exception as e:
@@ -191,7 +197,14 @@ async def send_notification(notification: NotificationData):
                     }
                 })
         else:
-            subscriptions = local_subscriptions
+            # Преобразуем локальные подписки в нужный формат
+            subscriptions = [
+                {
+                    "endpoint": sub["endpoint"],
+                    "keys": sub["keys"]
+                }
+                for sub in local_subscriptions
+            ]
 
         if not subscriptions:
             return {"status": "error", "message": "Нет активных подписок"}
@@ -230,16 +243,22 @@ async def send_notification(notification: NotificationData):
                 failed_count += 1
                 failed_endpoints.append(sub["endpoint"])
                 # Если подписка недействительна, удаляем её
-                if e.response.status_code == 410:  # Gone
+                if hasattr(e, 'response') and e.response and e.response.status_code == 410:  # Gone
                     if supabase_client:
                         supabase_client.table("push_subscriptions").delete().eq(
                             "endpoint", sub["endpoint"]
                         ).execute()
                     else:
+                        global local_subscriptions
                         local_subscriptions = [
                             s for s in local_subscriptions
                             if s["endpoint"] != sub["endpoint"]
                         ]
+            except Exception as e:
+                # Обработка других ошибок при отправке
+                failed_count += 1
+                failed_endpoints.append(sub["endpoint"])
+                print(f"Ошибка при отправке уведомления: {str(e)}")
 
         return {
             "status": "success",
