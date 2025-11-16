@@ -2,7 +2,8 @@ services:
   - type: web
     name: pwa-push-backend
     env: python
-    buildCommand: pip install --upgrade pip && pip install --only-binary :all: -r requirements.txt || pip install -r requirements.txt
+    pythonVersion: 3.12.0
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: VAPID_PRIVATE_KEY

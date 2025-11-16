@@ -29,6 +29,7 @@ python generate_vapid_keys.py
 - **Branch**: `main` (или ваша основная ветка)
 - **Root Directory**: `backend` ⚠️ **ВАЖНО!**
 - **Runtime**: `Python 3`
+- **Python Version**: `3.12.0` ⚠️ **КРИТИЧЕСКИ ВАЖНО!** В настройках Render в разделе "Environment" найдите "Python Version" и выберите `3.12.0` (НЕ 3.13!)
 - **Build Command**: `pip install --upgrade pip && pip install -r requirements.txt`
 - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
 
@@ -163,10 +164,13 @@ render env:set VAPID_PRIVATE_KEY "$(cat path/to/private-key.pem)" --service your
 
 Эта ошибка возникает из-за несовместимости `py-vapid` с Python 3.13. Решение:
 
-1. **Убедитесь, что используется Python 3.12** - в `runtime.txt` указана версия `python-3.12.0`
-2. **В настройках Render** убедитесь, что выбрана версия Python 3.12 (не 3.13!)
-3. **Обновите `requirements.txt`** - используйте `py-vapid==1.9.2` (последняя доступная версия)
-4. **ВАЖНО: Добавьте VAPID ключи в переменные окружения** - чтобы избежать автоматической генерации при каждом запуске
+1. **В настройках Render** перейдите в раздел "Environment" → "Python Version" и выберите `3.12.0` (НЕ 3.13!)
+2. **Убедитесь, что `runtime.txt` содержит `python-3.12.0`** - это уже сделано
+3. **Обновите `requirements.txt`** - используйте `py-vapid==1.9.2` (последняя доступная версия) - это уже сделано
+4. **КРИТИЧЕСКИ ВАЖНО: Добавьте VAPID ключи в переменные окружения** - чтобы избежать автоматической генерации при каждом запуске:
+   - Перейдите в "Environment Variables" в настройках сервиса
+   - Добавьте `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY` и `VAPID_EMAIL`
+   - Без этих ключей приложение будет пытаться генерировать их при каждом запуске, что вызывает ошибку с Python 3.13
 
 ### ❌ Ошибка при сборке: "pydantic-core compilation failed" или "Rust toolchain"
 
