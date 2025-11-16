@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import "./App.css";
 
-// URL бэкенда (будет настроен позже)
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// URL бэкенда
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  "https://my-pwa-push-app-backend.onrender.com";
 
 function App() {
   const [deferredPrompt, setDeferredPrompt] = useState(null);

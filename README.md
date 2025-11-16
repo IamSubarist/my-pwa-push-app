@@ -7,16 +7,21 @@
 ### Фронтенд
 
 1. Установите зависимости:
+
 ```bash
 npm install
 ```
 
-2. Создайте файл `.env`:
+2. (Опционально) Создайте файл `.env` для локальной разработки:
+
 ```
 VITE_API_URL=http://localhost:8000
 ```
 
+**Для продакшена**: URL бэкенда уже настроен по умолчанию на `https://my-pwa-push-app-backend.onrender.com`. Если ваш бэкенд на другом URL, создайте `.env` файл или установите переменную окружения `VITE_API_URL` на вашем хостинге.
+
 3. Запустите dev сервер:
+
 ```bash
 npm run dev
 ```
@@ -24,11 +29,13 @@ npm run dev
 ### Бэкенд
 
 1. Перейдите в папку backend:
+
 ```bash
 cd backend
 ```
 
 2. Установите зависимости:
+
 ```bash
 pip install -r requirements.txt
 ```
@@ -36,6 +43,7 @@ pip install -r requirements.txt
 3. Создайте файл `.env` (см. `backend/README.md`)
 
 4. Запустите сервер:
+
 ```bash
 python main.py
 ```

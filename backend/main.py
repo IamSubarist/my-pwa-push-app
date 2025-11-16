@@ -183,6 +183,7 @@ async def unsubscribe(subscription: PushSubscription):
 @app.post("/api/send-notification")
 async def send_notification(notification: NotificationData):
     """Отправляет push-уведомление всем подписчикам"""
+    global local_subscriptions
     try:
         # Получаем все подписки
         subscriptions = []
@@ -249,7 +250,6 @@ async def send_notification(notification: NotificationData):
                             "endpoint", sub["endpoint"]
                         ).execute()
                     else:
-                        global local_subscriptions
                         local_subscriptions = [
                             s for s in local_subscriptions
                             if s["endpoint"] != sub["endpoint"]
@@ -274,6 +274,7 @@ async def send_notification(notification: NotificationData):
 @app.get("/api/subscriptions")
 async def get_subscriptions():
     """Возвращает список всех подписок (для администрирования)"""
+    global local_subscriptions
     try:
         if supabase_client:
             result = supabase_client.table("push_subscriptions").select("*").execute()
