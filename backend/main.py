@@ -13,7 +13,7 @@ import supabase
 from dotenv import load_dotenv
 from cryptography.hazmat.primitives import serialization
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 import secrets
 
 load_dotenv()
@@ -49,8 +49,6 @@ SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))  # Генери�
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24 * 60  # 30 дней
 
-# Настройки для хеширования паролей
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 
@@ -145,11 +143,42 @@ local_users = []
 
 # Функции для работы с паролями
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    """Проверяет пароль против хеша"""
+    try:
+        # bcrypt имеет ограничение на длину пароля в 72 байта
+        # Обрезаем пароль до 72 байт перед проверкой
+        password_bytes = plain_password.encode('utf-8')
+        if len(password_bytes) > 72:
+            password_bytes = password_bytes[:72]
+        
+        # Проверяем пароль
+        return bcrypt.checkpw(password_bytes, hashed_password.encode('utf-8'))
+    except Exception as e:
+        print(f"Ошибка при проверке пароля: {e}")
+        return False
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    """Хеширует пароль используя bcrypt"""
+    try:
+        # bcrypt имеет ограничение на длину пароля в 72 байта
+        # Обрезаем пароль до 72 байт перед хешированием
+        password_bytes = password.encode('utf-8')
+        password_length = len(password_bytes)
+        
+        if password_length > 72:
+            print(f"Предупреждение: пароль длиннее 72 байт ({password_length} байт), обрезаем до 72")
+            password_bytes = password_bytes[:72]
+        
+        # Генерируем соль и хешируем пароль
+        salt = bcrypt.gensalt()
+        hashed = bcrypt.hashpw(password_bytes, salt)
+        return hashed.decode('utf-8')
+    except Exception as e:
+        print(f"Ошибка при хешировании пароля: {e}")
+        print(f"Длина пароля в байтах: {len(password.encode('utf-8'))}")
+        print(f"Длина пароля в символах: {len(password)}")
+        raise
 
 
 # Функции для работы с JWT токенами

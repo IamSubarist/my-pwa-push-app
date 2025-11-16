@@ -442,6 +442,7 @@ function App() {
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                   required
+                  maxLength={70}
                 />
               </div>
               <button type="submit">Войти</button>
@@ -474,7 +475,19 @@ function App() {
                   onChange={(e) => setRegisterPassword(e.target.value)}
                   required
                   minLength={6}
+                  maxLength={70}
+                  title="Пароль должен быть от 6 до 70 символов"
                 />
+                <small
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#666",
+                    marginTop: "0.25rem",
+                    display: "block",
+                  }}
+                >
+                  От 6 до 70 символов
+                </small>
               </div>
               <button type="submit">Зарегистрироваться</button>
             </form>
