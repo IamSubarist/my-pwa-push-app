@@ -297,22 +297,18 @@ async def send_notification(notification: NotificationData):
                     print(f"Ключ нормализован (превью): {key_preview}...")
                     print(f"Количество строк в ключе: {normalized_key.count(chr(10)) + 1}")
                 
-                # Создаем Vapid объект из PEM ключа
-                # pywebpush ожидает ключ в формате base64url (DER), а не PEM
-                # Поэтому создаем Vapid объект и используем его для получения ключа в нужном формате
+                # Конвертируем PEM ключ в формат base64url (DER), который ожидает pywebpush
+                # Используем cryptography для прямой загрузки PEM ключа
                 try:
-                    vapid_obj = py_vapid.Vapid01()
-                    vapid_obj.from_pem(normalized_key)
-                    print("Vapid объект успешно создан из PEM ключа")
-                except Exception as pem_error:
-                    print(f"Ошибка при создании Vapid объекта из PEM: {pem_error}")
-                    raise
-                
-                # Получаем приватный ключ в формате DER и конвертируем в base64url
-                # Это формат, который ожидает pywebpush
-                try:
-                    # Получаем приватный ключ в формате DER
-                    private_key_der = vapid_obj.private_key.private_bytes(
+                    # Загружаем приватный ключ из PEM строки
+                    private_key = serialization.load_pem_private_key(
+                        normalized_key.encode('utf-8'),
+                        password=None,
+                    )
+                    print("Приватный ключ успешно загружен из PEM")
+                    
+                    # Конвертируем ключ в формат DER
+                    private_key_der = private_key.private_bytes(
                         encoding=serialization.Encoding.DER,
                         format=serialization.PrivateFormat.PKCS8,
                         encryption_algorithm=serialization.NoEncryption()
@@ -322,7 +318,9 @@ async def send_notification(notification: NotificationData):
                     private_key_base64url = base64.urlsafe_b64encode(private_key_der).decode('utf-8').rstrip('=')
                     print(f"Ключ конвертирован в base64url формат (длина: {len(private_key_base64url)} символов)")
                 except Exception as conv_error:
-                    print(f"Ошибка при конвертации ключа в base64url: {conv_error}")
+                    print(f"Ошибка при конвертации ключа из PEM в base64url: {conv_error}")
+                    import traceback
+                    traceback.print_exc()
                     raise
                 
                 # Используем ключ в формате base64url
