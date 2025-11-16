@@ -63,13 +63,24 @@ function App() {
     }
 
     try {
-      const registration = await navigator.serviceWorker.ready;
+      // Ждем регистрации Service Worker с таймаутом
+      let registration;
+      try {
+        registration = await navigator.serviceWorker.ready;
+      } catch (swError) {
+        console.error("Service Worker не готов:", swError);
+        // Пытаемся зарегистрировать заново
+        registration = await navigator.serviceWorker.register("/sw.js");
+        await registration.update();
+        registration = await navigator.serviceWorker.ready;
+      }
+
       const subscription = await registration.pushManager.getSubscription();
       setIsSubscribed(!!subscription);
       setSubscriptionStatus(subscription ? "subscribed" : "not-subscribed");
     } catch (error) {
       console.error("Ошибка при проверке подписки:", error);
-      setSubscriptionStatus("error");
+      setSubscriptionStatus("not-subscribed");
     }
   };
 
@@ -222,7 +233,34 @@ function App() {
         )}
 
         {subscriptionStatus === "checking" && (
-          <p className="status-message">Проверка статуса подписки...</p>
+          <div>
+            <p className="status-message">Проверка статуса подписки...</p>
+            <p
+              style={{
+                fontSize: "0.85rem",
+                color: "#666",
+                marginTop: "0.5rem",
+              }}
+            >
+              Если это сообщение не исчезает, откройте консоль браузера (F12)
+              для диагностики
+            </p>
+          </div>
+        )}
+
+        {subscriptionStatus === "error" && (
+          <div>
+            <p className="status-message error">
+              Ошибка при проверке подписки. Откройте консоль браузера (F12) для
+              подробностей.
+            </p>
+            <button
+              onClick={checkSubscriptionStatus}
+              style={{ marginTop: "1rem" }}
+            >
+              Попробовать снова
+            </button>
+          </div>
         )}
 
         {subscriptionStatus === "not-subscribed" && (

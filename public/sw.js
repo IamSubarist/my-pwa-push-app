@@ -2,10 +2,8 @@ const CACHE_NAME = 'pwa-cache-v1';
 const urlsToCache = [
   '/',
   '/index.html',
-  '/src/main.jsx',
-  '/src/App.jsx',
-  '/src/index.css',
-  '/src/App.css'
+  '/manifest.json',
+  '/vite.svg'
 ];
 
 // Установка service worker
@@ -41,11 +39,22 @@ self.addEventListener('activate', (event) => {
 
 // Перехват запросов
 self.addEventListener('fetch', (event) => {
+  // Не кэшируем запросы к API
+  if (event.request.url.includes('/api/')) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
         // Возвращаем из кэша или делаем сетевой запрос
         return response || fetch(event.request);
+      })
+      .catch(() => {
+        // Если запрос не удался и это навигационный запрос, возвращаем index.html
+        if (event.request.mode === 'navigate') {
+          return caches.match('/index.html');
+        }
       })
   );
 });
