@@ -4,7 +4,7 @@ pywebpush==1.14.0
 py-vapid==1.9.2
 python-dotenv==1.0.1
 supabase==2.8.1
-pydantic==2.10.3
+pydantic[email]==2.10.3
 python-multipart==0.0.12
 cryptography<41.0.0
 python-jose[cryptography]==3.3.0
