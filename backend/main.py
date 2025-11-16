@@ -78,6 +78,32 @@ def normalize_vapid_private_key(key: str) -> str:
     return normalized
 
 
+# Конвертируем PEM ключ в base64url формат один раз при старте приложения
+# Это формат, который ожидает pywebpush
+VAPID_PRIVATE_KEY_BASE64URL = None
+if VAPID_PRIVATE_KEY:
+    try:
+        normalized_key = normalize_vapid_private_key(VAPID_PRIVATE_KEY)
+        # Загружаем приватный ключ из PEM строки
+        private_key = serialization.load_pem_private_key(
+            normalized_key.encode('utf-8'),
+            password=None,
+        )
+        # Конвертируем ключ в формат DER
+        private_key_der = private_key.private_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        # Конвертируем DER в base64url (формат, который ожидает pywebpush)
+        VAPID_PRIVATE_KEY_BASE64URL = base64.urlsafe_b64encode(private_key_der).decode('utf-8').rstrip('=')
+        print("VAPID приватный ключ успешно загружен и конвертирован")
+    except Exception as e:
+        print(f"ОШИБКА: Не удалось загрузить VAPID приватный ключ: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 # Если ключи заданы из .env, обрабатываем публичный ключ
 if VAPID_PUBLIC_KEY and isinstance(VAPID_PUBLIC_KEY, str) and not VAPID_PUBLIC_KEY.startswith("-----BEGIN"):
     import base64
@@ -263,8 +289,8 @@ async def send_notification(notification: NotificationData):
             return {"status": "error", "message": "Нет активных подписок"}
 
         # Проверяем наличие VAPID ключа
-        if not VAPID_PRIVATE_KEY:
-            raise HTTPException(status_code=500, detail="VAPID_PRIVATE_KEY не настроен")
+        if not VAPID_PRIVATE_KEY_BASE64URL:
+            raise HTTPException(status_code=500, detail="VAPID_PRIVATE_KEY не настроен или не удалось загрузить")
 
         # Подготавливаем данные уведомления
         notification_payload = {
@@ -287,50 +313,14 @@ async def send_notification(notification: NotificationData):
                 print(f"Отправка уведомления на endpoint: {sub['endpoint']}")
                 print(f"Данные уведомления: {notification_payload}")
                 
-                # Нормализуем VAPID ключ перед использованием
-                # Ключ из переменных окружения может иметь потерянные переносы строк
-                normalized_key = normalize_vapid_private_key(VAPID_PRIVATE_KEY)
-                
-                # Отладочная информация (первые 50 символов ключа)
-                if normalized_key:
-                    key_preview = normalized_key[:50].replace("\n", "\\n")
-                    print(f"Ключ нормализован (превью): {key_preview}...")
-                    print(f"Количество строк в ключе: {normalized_key.count(chr(10)) + 1}")
-                
-                # Конвертируем PEM ключ в формат base64url (DER), который ожидает pywebpush
-                # Используем cryptography для прямой загрузки PEM ключа
-                try:
-                    # Загружаем приватный ключ из PEM строки
-                    private_key = serialization.load_pem_private_key(
-                        normalized_key.encode('utf-8'),
-                        password=None,
-                    )
-                    print("Приватный ключ успешно загружен из PEM")
-                    
-                    # Конвертируем ключ в формат DER
-                    private_key_der = private_key.private_bytes(
-                        encoding=serialization.Encoding.DER,
-                        format=serialization.PrivateFormat.PKCS8,
-                        encryption_algorithm=serialization.NoEncryption()
-                    )
-                    
-                    # Конвертируем DER в base64url (формат, который ожидает pywebpush)
-                    private_key_base64url = base64.urlsafe_b64encode(private_key_der).decode('utf-8').rstrip('=')
-                    print(f"Ключ конвертирован в base64url формат (длина: {len(private_key_base64url)} символов)")
-                except Exception as conv_error:
-                    print(f"Ошибка при конвертации ключа из PEM в base64url: {conv_error}")
-                    import traceback
-                    traceback.print_exc()
-                    raise
-                
-                # Используем ключ в формате base64url
+                # Используем готовый ключ в формате base64url (конвертирован при старте приложения)
                 webpush(
                     subscription_info={
                         "endpoint": sub["endpoint"],
                         "keys": sub["keys"]
                     },
                     data=json.dumps(notification_payload),
-                    vapid_private_key=private_key_base64url,
+                    vapid_private_key=VAPID_PRIVATE_KEY_BASE64URL,
                     vapid_claims={
                         "sub": VAPID_EMAIL
                     }
