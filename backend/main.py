@@ -231,8 +231,8 @@ class PushSubscription(BaseModel):
 
 
 class NotificationData(BaseModel):
-    title: str
-    body: str
+    title: Optional[str] = None  # Если не указан, сервер использует значение по умолчанию
+    body: Optional[str] = None  # Если не указан, сервер использует значение по умолчанию
     icon: Optional[str] = None
     badge: Optional[str] = None
     tag: Optional[str] = None
@@ -542,9 +542,10 @@ async def send_notification(notification: NotificationData, current_user: dict =
             raise HTTPException(status_code=500, detail="VAPID_PRIVATE_KEY не настроен или не удалось загрузить")
 
         # Подготавливаем данные уведомления
+        # Если title/body не указаны, используем значения по умолчанию
         notification_payload = {
-            "title": notification.title,
-            "body": notification.body,
+            "title": notification.title or "Новое уведомление",
+            "body": notification.body or "У вас новое сообщение!",
             "icon": notification.icon or "/vite.svg",
             "badge": notification.badge or "/vite.svg",
             "tag": notification.tag or "default",

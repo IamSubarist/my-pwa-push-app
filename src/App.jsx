@@ -306,16 +306,11 @@ function App() {
 
   const sendTestNotification = async () => {
     try {
-      // Отправляем уведомление текущему пользователю (на все его устройства)
-      const response = await api.post("/api/send-notification", {
-        title: "Тестовое уведомление",
-        body: "Это тестовое push-уведомление!",
-        icon: "/vite.svg",
-      });
+      // Отправляем запрос на отправку уведомления
+      // Сервер сам решает, какое содержимое отправлять
+      const response = await api.post("/api/send-notification", {});
 
-      alert(
-        `Тестовое уведомление отправлено на ${response.data.success_count} устройство(а)!`
-      );
+      alert(`Тестовое уведомление отправлено!`);
     } catch (error) {
       console.error("Ошибка при отправке тестового уведомления:", error);
       const errorMessage =
