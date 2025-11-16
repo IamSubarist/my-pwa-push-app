@@ -165,7 +165,7 @@ render env:set VAPID_PRIVATE_KEY "$(cat path/to/private-key.pem)" --service your
 
 1. **Убедитесь, что используется Python 3.12** - в `runtime.txt` указана версия `python-3.12.0`
 2. **В настройках Render** убедитесь, что выбрана версия Python 3.12 (не 3.13!)
-3. **Обновите `requirements.txt`** - используйте `py-vapid>=1.11.0`
+3. **Обновите `requirements.txt`** - используйте `py-vapid==1.9.2` (последняя доступная версия)
 4. **ВАЖНО: Добавьте VAPID ключи в переменные окружения** - чтобы избежать автоматической генерации при каждом запуске
 
 ### ❌ Ошибка при сборке: "pydantic-core compilation failed" или "Rust toolchain"
