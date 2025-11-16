@@ -1,0 +1,12 @@
+.app {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  text-align: center;
+}
+
+.app h1 {
+  font-size: 2rem;
+  color: #333;
+}
