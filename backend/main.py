@@ -313,6 +313,10 @@ async def send_notification(notification: NotificationData):
                 print(f"Отправка уведомления на endpoint: {sub['endpoint']}")
                 print(f"Данные уведомления: {notification_payload}")
                 
+                # Проверяем, что ключ загружен
+                if not VAPID_PRIVATE_KEY_BASE64URL:
+                    raise ValueError("VAPID приватный ключ не загружен. Проверьте конфигурацию.")
+                
                 # Используем готовый ключ в формате base64url (конвертирован при старте приложения)
                 webpush(
                     subscription_info={
