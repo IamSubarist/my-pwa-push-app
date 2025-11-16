@@ -123,16 +123,44 @@ function App() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(subscription),
+        body: JSON.stringify({
+          endpoint: subscription.endpoint,
+          keys: {
+            p256dh: btoa(
+              String.fromCharCode(
+                ...new Uint8Array(subscription.getKey("p256dh"))
+              )
+            ),
+            auth: btoa(
+              String.fromCharCode(
+                ...new Uint8Array(subscription.getKey("auth"))
+              )
+            ),
+          },
+        }),
       });
 
-      if (subscribeResponse.ok) {
-        setIsSubscribed(true);
-        setSubscriptionStatus("subscribed");
-        console.log("Подписка успешно создана");
-      } else {
-        throw new Error("Ошибка при сохранении подписки");
+      if (!subscribeResponse.ok) {
+        let errorText;
+        try {
+          const errorData = await subscribeResponse.json();
+          errorText =
+            errorData.detail || errorData.message || JSON.stringify(errorData);
+        } catch {
+          errorText = await subscribeResponse.text();
+        }
+        console.error("Ошибка сервера:", {
+          status: subscribeResponse.status,
+          statusText: subscribeResponse.statusText,
+          error: errorText,
+        });
+        throw new Error(`Ошибка ${subscribeResponse.status}: ${errorText}`);
       }
+
+      const result = await subscribeResponse.json();
+      setIsSubscribed(true);
+      setSubscriptionStatus("subscribed");
+      console.log("Подписка успешно создана:", result);
     } catch (error) {
       console.error("Ошибка при подписке на push-уведомления:", error);
       alert("Не удалось подписаться на уведомления: " + error.message);

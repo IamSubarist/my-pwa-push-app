@@ -129,6 +129,13 @@ async def get_vapid_public_key():
 async def subscribe(subscription: PushSubscription):
     """Сохраняет подписку пользователя"""
     try:
+        # Проверяем наличие обязательных полей
+        if not subscription.endpoint:
+            raise HTTPException(status_code=400, detail="Endpoint отсутствует")
+        
+        if not subscription.keys or not subscription.keys.get("p256dh") or not subscription.keys.get("auth"):
+            raise HTTPException(status_code=400, detail="Ключи подписки отсутствуют или неполные")
+        
         subscription_data = {
             "endpoint": subscription.endpoint,
             "keys": subscription.keys,
@@ -137,13 +144,32 @@ async def subscribe(subscription: PushSubscription):
 
         if supabase_client:
             # Сохраняем в Supabase
-            result = supabase_client.table("push_subscriptions").insert({
-                "endpoint": subscription.endpoint,
-                "p256dh": subscription.keys.get("p256dh"),
-                "auth": subscription.keys.get("auth"),
-                "created_at": datetime.now().isoformat()
-            }).execute()
-            return {"status": "success", "message": "Подписка сохранена"}
+            try:
+                # Проверяем, существует ли уже подписка с таким endpoint
+                existing = supabase_client.table("push_subscriptions").select("*").eq("endpoint", subscription.endpoint).execute()
+                
+                if existing.data and len(existing.data) > 0:
+                    # Обновляем существующую подписку
+                    result = supabase_client.table("push_subscriptions").update({
+                        "p256dh": subscription.keys.get("p256dh"),
+                        "auth": subscription.keys.get("auth"),
+                        "created_at": datetime.now().isoformat()
+                    }).eq("endpoint", subscription.endpoint).execute()
+                else:
+                    # Создаем новую подписку
+                    result = supabase_client.table("push_subscriptions").insert({
+                        "endpoint": subscription.endpoint,
+                        "p256dh": subscription.keys.get("p256dh"),
+                        "auth": subscription.keys.get("auth"),
+                        "created_at": datetime.now().isoformat()
+                    }).execute()
+                return {"status": "success", "message": "Подписка сохранена"}
+            except Exception as supabase_error:
+                import traceback
+                error_trace = traceback.format_exc()
+                print(f"Ошибка Supabase: {str(supabase_error)}")
+                print(f"Traceback: {error_trace}")
+                raise HTTPException(status_code=500, detail=f"Ошибка Supabase: {str(supabase_error)}")
         else:
             # Сохраняем локально (проверяем на дубликаты)
             global local_subscriptions
@@ -154,8 +180,11 @@ async def subscribe(subscription: PushSubscription):
             ]
             local_subscriptions.append(subscription_data)
             return {"status": "success", "message": "Подписка сохранена"}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Ошибка при сохранении подписки: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при сохранении подписки: {str(e)}")
 
 
 @app.post("/api/unsubscribe")
